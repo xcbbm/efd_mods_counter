@@ -44,11 +44,13 @@ except Exception:
     ToastNotifier = None
 
 # ========== 基本配置（可按需调整） ==========
+# 项目根目录（脚本位于 src/main，将向上三层到项目根）
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CFG = {
     'WORKSHOP_URL': 'https://steamcommunity.com/app/3167020/workshop/',
     'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
     'TIMEOUT_SEC': 30,
-    'OUTPUT_DIR': os.path.join(os.path.dirname(os.path.abspath(__file__)), 'excel'),
+    'OUTPUT_DIR': os.path.join(PROJECT_ROOT, 'excel'),
     'USE_MIRROR': True,   # 受限网络时建议启用：通过 r.jina.ai 镜像读取公开页面
 }
 
@@ -347,7 +349,7 @@ def send_toast(title: str, message: str):
 def install_deps():
     """通过 pip 安装 requirements.txt 中列出的依赖。"""
     try:
-        req = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'requirements.txt')
+        req = os.path.join(PROJECT_ROOT, 'requirements.txt')
         if not os.path.exists(req):
             print('requirements.txt 未找到，请手动创建或通过包管理工具安装依赖。')
             return
