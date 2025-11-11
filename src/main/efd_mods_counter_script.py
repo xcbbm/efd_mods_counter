@@ -33,7 +33,7 @@ except Exception:
 try:
     from openpyxl import Workbook, load_workbook
     from openpyxl.utils import get_column_letter
-    from openpyxl.styles import Alignment
+    from openpyxl.styles import Alignment, Font
 except Exception:
     load_workbook = None
 
@@ -239,6 +239,8 @@ def ensure_excel_row(excel_path: str, date: datetime, count: int):
     for cell in ws[1]:
         try:
             cell.alignment = center_align
+            # 设置表头为加粗
+            cell.font = Font(bold=True)
         except Exception:
             pass
 
