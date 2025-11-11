@@ -4,7 +4,7 @@ efd_mods_counter_py.py
 
 说明（中文注释，运行时中文通过 Unicode 拼接或直接使用 utf-8）：
   - 访问 Steam 创意工坊页面（Escape From Duckov），抓取并解析 MOD 总数量
-  - 将统计结果写入当前工作区下的 excel 文件夹，以“逃离雅科夫-Mods数量统计.xlsx”为文件名，按行追加
+  - 将统计结果写入当前工作区下的 excel 文件夹，以“《逃离鸭科夫》-Mods数量统计.xlsx”为文件名，按行追加
   - 读取上一次记录并对比，生成中文通知文案并尝试发送系统通知（Windows Toast），失败则打印到控制台
 
 依赖：
@@ -144,8 +144,8 @@ def parse_workshop_mod_count(html: str) -> int:
 # -------------------------------
 
 def get_game_name_cn() -> str:
-    # 使用与原 PowerShell 相同的码点（保留原意）
-    return CN('9003 79BB 96C5 79D1 592B')
+    # 使用与原 PowerShell 相同的码点（保留原意），返回 逃离鸭科夫（不含书名号）
+    return CN('9003 79BB 9E2D 79D1 592B')
 
 # -------------------------------
 # 构造文件名与路径
