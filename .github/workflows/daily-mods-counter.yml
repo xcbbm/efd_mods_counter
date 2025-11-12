@@ -1,0 +1,47 @@
+name: Daily Mods Counter
+
+on:
+  schedule:
+    # 每天 UTC 时间 15:00 触发 → 对应北京时间 23:00（UTC+8）
+    - cron: '0 15 * * *'
+  # 允许手动触发测试
+  workflow_dispatch:
+
+
+jobs:
+  update-excel:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run mods counter script
+        run: python src/efd_mods_counter_script.py  
+
+      - name: Commit and push Excel output
+        run: |
+          # 配置 Git 用户
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # 添加 excel 目录下所有变更
+          git add excel/
+          
+          # 仅当有更改时才提交
+          if ! git diff --quiet --cached; then
+            git commit -m "Update mods data [$(date +'%Y-%m-%d %H:%M:%S')]"
+            git push
+          else
+            echo "No changes to commit."
+          fi
