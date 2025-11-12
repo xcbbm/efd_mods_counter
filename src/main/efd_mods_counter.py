@@ -10,19 +10,16 @@ efd_mods_counter_py.py
 依赖：
   - requests
   - openpyxl
-  - win10toast (可选，用于 Windows 通知，缺失时回退到控制台)
 
 用法（手动执行或计划任务调用）:
   python efd_mods_counter_py.py
-
 """
 import os
 import re
 import sys
 import time
 import subprocess
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 # 尝试导入第三方库
 try:
@@ -37,26 +34,29 @@ try:
 except Exception:
     load_workbook = None
 
-# 可选通知库
-# win10toast 已移除（CI / 非 Windows 环境如 GitHub Actions 常常无法安装 win10toast），统一使用控制台输出作为通知回退。
-# try:
-#     from win10toast import ToastNotifier
-# except Exception:
-#     ToastNotifier = None
-
 # ========== 基本配置（可按需调整） ==========
-# 项目根目录（脚本位于 src/main，将向上三层到项目根）
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CFG = {
     'WORKSHOP_URL': 'https://steamcommunity.com/app/3167020/workshop/',
     'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36',
     'TIMEOUT_SEC': 30,
     'OUTPUT_DIR': os.path.join(PROJECT_ROOT, 'excel'),
-    'USE_MIRROR': True,   # 受限网络时建议启用：通过 r.jina.ai 镜像读取公开页面
+    'USE_MIRROR': True,
 }
 
+# 定义北京时间（UTC+8）
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def get_beijing_now() -> datetime:
+    """获取当前北京时间（带时区信息）"""
+    return datetime.now(BEIJING_TZ)
+
+def get_date_str(dt: datetime) -> str:
+    """将 datetime 转换为 'YYYY/MM/DD' 字符串（强制使用北京时间）"""
+    return dt.astimezone(BEIJING_TZ).strftime('%Y/%m/%d')
+
 # -------------------------------
-# 工具：通过十六进制 Unicode 码点构造中文字符串（传入空格分隔的十六进制码点）
+# 工具：通过十六进制 Unicode 码点构造中文字符串
 # -------------------------------
 
 def CN(hexes: str) -> str:
@@ -70,13 +70,12 @@ def CN(hexes: str) -> str:
     return ''.join(chars)
 
 # -------------------------------
-# 工具：HTTP 请求（优先 requests，失败回退到系统 curl）
+# HTTP 请求 & 解析等工具函数（保持不变）
 # -------------------------------
 
 def invoke_http(url: str, timeout: int = 30, user_agent: str = None, use_mirror: bool = True) -> str:
     effective = url
     if use_mirror:
-        # r.jina.ai/http:// + 原始地址去除协议
         effective = 'https://r.jina.ai/http://' + re.sub(r'^https?://', '', url, flags=re.I)
 
     headers = {
@@ -85,7 +84,6 @@ def invoke_http(url: str, timeout: int = 30, user_agent: str = None, use_mirror:
         'Accept-Language': 'en-US,en;q=0.9'
     }
 
-    # 优先使用 requests
     if requests:
         attempts = 0
         while attempts < 2:
@@ -93,14 +91,12 @@ def invoke_http(url: str, timeout: int = 30, user_agent: str = None, use_mirror:
             try:
                 r = requests.get(effective, headers=headers, timeout=timeout)
                 r.raise_for_status()
-                # 尝试以 r.encoding 或 utf-8 解码
                 r.encoding = r.encoding or 'utf-8'
                 return r.text
             except Exception:
                 time.sleep(2)
-        # 若失败，继续尝试 curl 回退
 
-    # 回退：使用系统 curl.exe
+    # 回退到 curl
     try:
         tmp = os.path.join(os.environ.get('TEMP', '/tmp'), f"efd_http_{int(time.time())}.tmp")
         cmd = [
@@ -122,10 +118,6 @@ def invoke_http(url: str, timeout: int = 30, user_agent: str = None, use_mirror:
     except Exception as e:
         raise RuntimeError(f'HTTP request failed: {e}')
 
-# -------------------------------
-# 工具：解析 MOD 总数（兼容常见模式）
-# -------------------------------
-
 def parse_workshop_mod_count(html: str) -> int:
     patterns = [
         r'See\s+all\s+([\d,\.]+)\s+Mods',
@@ -140,43 +132,28 @@ def parse_workshop_mod_count(html: str) -> int:
                 return int(num)
     raise ValueError('Failed to parse MOD total from Workshop page.')
 
-# -------------------------------
-# 获取游戏中文名
-# -------------------------------
-
 def get_game_name_cn() -> str:
-    # 使用与原 PowerShell 相同的码点（保留原意），返回 逃离鸭科夫（不含书名号）
     return CN('9003 79BB 9E2D 79D1 592B')
-
-# -------------------------------
-# 构造文件名与路径
-# -------------------------------
 
 def get_excel_path() -> str:
     game = get_game_name_cn()
-    cn_num_stat = CN('6570 91CF 7EDF 8BA1')  # 数量统计
+    cn_num_stat = CN('6570 91CF 7EDF 8BA1')
     filename = f"{game}-Mods{cn_num_stat}.xlsx"
     outdir = CFG['OUTPUT_DIR']
     os.makedirs(outdir, exist_ok=True)
     return os.path.join(outdir, filename)
 
-# -------------------------------
-# 写入 Excel（openpyxl），若缺少 openpyxl 会抛出异常
-# -------------------------------
-
 def ensure_excel_row(excel_path: str, date: datetime, count: int):
     if load_workbook is None:
         raise RuntimeError('openpyxl is required to write Excel files. Please pip install openpyxl')
 
-    date_str = date.strftime('%Y/%m/%d')
-    # 中心对齐样式
+    date_str = get_date_str(date)
     center_align = Alignment(horizontal='center', vertical='center')
 
     if os.path.exists(excel_path):
         wb = load_workbook(excel_path)
         ws = wb.worksheets[0]
 
-        # 确保前三列宽至少为 50（近似像素单位，使用字符宽度单位直接设置为 50）
         for col_idx in range(1, 4):
             col_letter = get_column_letter(col_idx)
             try:
@@ -187,7 +164,6 @@ def ensure_excel_row(excel_path: str, date: datetime, count: int):
                 except Exception:
                     pass
 
-        # 查找是否已有今天的记录，若有则更新第3列（ModCount）；若没有则追加
         found = False
         for row in range(2, ws.max_row + 1):
             date_cell = ws.cell(row=row, column=1).value
@@ -207,9 +183,7 @@ def ensure_excel_row(excel_path: str, date: datetime, count: int):
 
             cmp_str = parsed_date.strftime('%Y/%m/%d') if parsed_date else str(date_cell)
             if cmp_str == date_str:
-                # 更新 ModCount
                 ws.cell(row=row, column=3).value = int(count)
-                # 设置对齐
                 for col in range(1, 4):
                     ws.cell(row=row, column=col).alignment = center_align
                 found = True
@@ -225,27 +199,23 @@ def ensure_excel_row(excel_path: str, date: datetime, count: int):
         wb.close()
         return
 
-    # 文件不存在：创建一个新的 Excel，设置全局格式为居中，前三列列宽设为 50，并写入表头与当天数据
+    # 创建新文件
     wb = Workbook()
     ws = wb.active
     ws.title = 'ModCounts'
 
-    # 设置列宽（近似像素值，openpyxl 使用字符宽度单位，直接用 50）
     for col_idx in range(1, 4):
         col_letter = get_column_letter(col_idx)
         ws.column_dimensions[col_letter].width = 50
 
-    # 添加表头并居中
     ws.append(['Date', 'Game', 'ModCount'])
     for cell in ws[1]:
         try:
             cell.alignment = center_align
-            # 设置表头为加粗
             cell.font = Font(bold=True)
         except Exception:
             pass
 
-    # 添加今天的数据，并设置居中
     ws.append([date_str, get_game_name_cn(), int(count)])
     new_row = ws.max_row
     for col in range(1, 4):
@@ -257,16 +227,7 @@ def ensure_excel_row(excel_path: str, date: datetime, count: int):
     wb.save(excel_path)
     wb.close()
 
-# -------------------------------
-# 读取最后一行的 ModCount（若不存在返回 None）
-# -------------------------------
-
 def get_yesterday_count(excel_path: str, target_date_str: str = None):
-    """
-    在 Excel 第一列按 'YYYY/MM/DD' 日期字符串查找并返回 (parsed_date, count)。
-    - 如果给定 target_date_str，则只在表中查找该日期并返回对应的数量；找不到返回 None（不回退到最后一行）。
-    - 如果 target_date_str 为 None，则返回最后一条记录（兼容旧行为）。
-    """
     if load_workbook is None:
         return None
     if not os.path.exists(excel_path):
@@ -275,7 +236,6 @@ def get_yesterday_count(excel_path: str, target_date_str: str = None):
         wb = load_workbook(excel_path, read_only=True)
         ws = wb.worksheets[0]
 
-        # 按日期查找（从第2行开始，跳过表头）
         if target_date_str:
             for row in range(2, ws.max_row + 1):
                 date_cell = ws.cell(row=row, column=1).value
@@ -302,10 +262,9 @@ def get_yesterday_count(excel_path: str, target_date_str: str = None):
                     except Exception:
                         return None
             wb.close()
-            # 找不到指定日期时，不回退到最后一行，直接返回 None
             return None
 
-        # target_date_str is None: fallback to original last-row behavior
+        # fallback to last row (not used in main anymore)
         max_row = ws.max_row
         if max_row < 2:
             wb.close()
@@ -333,17 +292,10 @@ def get_yesterday_count(excel_path: str, target_date_str: str = None):
     except Exception:
         return None
 
-# -------------------------------
-# 发送系统通知（尝试 win10toast），失败回退到控制台输出
-# -------------------------------
-
 def send_toast(title: str, message: str):
-    # win10toast 已移除；直接打印到控制台以兼容所有平台
     print(f"{title} - {message}")
 
-# 可选：自动安装依赖（在开发环境或首次运行时使用）
 def install_deps():
-    """通过 pip 安装 requirements.txt 中列出的依赖。"""
     try:
         req = os.path.join(PROJECT_ROOT, 'requirements.txt')
         if not os.path.exists(req):
@@ -356,7 +308,6 @@ def install_deps():
         print('自动安装依赖失败：', e, file=sys.stderr)
         raise
 
-# 支持命令行参数 --install-deps 以便在首次部署时方便安装依赖
 if '--install-deps' in sys.argv:
     try:
         install_deps()
@@ -365,7 +316,7 @@ if '--install-deps' in sys.argv:
         sys.exit(1)
 
 # -------------------------------
-# 主流程
+# 主流程（使用北京时间）
 # -------------------------------
 
 def main():
@@ -373,60 +324,58 @@ def main():
         html = invoke_http(CFG['WORKSHOP_URL'], timeout=CFG['TIMEOUT_SEC'], user_agent=CFG['USER_AGENT'], use_mirror=CFG['USE_MIRROR'])
         count = parse_workshop_mod_count(html)
 
+        # 使用北京时间
+        today_dt = get_beijing_now()
+        yesterday_dt = today_dt - timedelta(days=1)
+
         excel_path = get_excel_path()
-        # 按日期查找昨日记录（格式 yyyy/MM/dd），只按日期查找且不回退到最后一条
-        yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y/%m/%d')
+        yesterday_str = get_date_str(yesterday_dt)
         yinfo = get_yesterday_count(excel_path, yesterday_str)
         ycount = None
         if yinfo is not None:
             _ydate, _ycount = yinfo
-            # 使用 Excel 中的数量作为昨日数量
             try:
                 ycount = int(_ycount)
             except Exception:
                 ycount = None
 
-        # 现在写入今天的数据到 Excel
-        ensure_excel_row(excel_path, datetime.now(), count)
+        # 写入今天的记录（北京时间）
+        ensure_excel_row(excel_path, today_dt, count)
 
-        # 构造中文通知文案（尽量使用 CN() 构造部分片段）
+        # 构造通知消息
         cn_comma = chr(0xFF0C)
         cn_excl = chr(0xFF01)
-        cn_today = f"{datetime.now().strftime('%Y')}" + chr(0x5E74) + f"{datetime.now().strftime('%m')}" + chr(0x6708) + f"{datetime.now().strftime('%d')}" + chr(0x65E5)
-        cn_workshop = CN('521B 610F 5DE5 574A')  # 创意工坊
-        cn_market = CN('5E02 573A')              # 市场
-        cn_of = CN('7684')                        # 的
+        cn_today = f"{today_dt.year}年{today_dt.month}月{today_dt.day}日"
+        cn_workshop = CN('521B 610F 5DE5 574A')
+        cn_market = CN('5E02 573A')
+        cn_of = CN('7684')
         cn_mod = 'Mod'
-        cn_total_num_is = CN('603B 6570 91CF 4E3A')  # 总数量为
-        cn_unit = CN('4E2A')                       # 个
-        cn_yesterday = CN('6BD4 6628 5929')        # 比昨天
-        cn_more = CN('591A 4E0A 67B6 4E86')         # 多上架了
-        cn_less = CN('51CF 5C11 4E86')             # 减少了
+        cn_total_num_is = CN('603B 6570 91CF 4E3A')
+        cn_unit = CN('4E2A')
+        cn_yesterday = CN('6BD4 6628 5929')
+        cn_more = CN('591A 4E0A 67B6 4E86')
+        cn_less = CN('51CF 5C11 4E86')
 
-        # 游戏名使用“鸭”字（而非原先的“雅”），并在消息中加上书名号
-        cn_game = CN('9003 79BB 9E2D 79D1 592B')  # 逃离鸭科夫
-        game_quoted = f"\u300A{cn_game}\u300B"  # 《逃离鸭科夫》
+        cn_game = CN('9003 79BB 9E2D 79D1 592B')
+        game_quoted = f"\u300A{cn_game}\u300B"
 
         prefix = f"{cn_today}{cn_comma}{game_quoted}{cn_workshop}{cn_market}{cn_of}{cn_mod}{cn_total_num_is}{count}{cn_unit}"
 
-        # 使用当前日期的前一天作为“昨天”的日
-        yesterday_day = (datetime.now() - timedelta(days=1)).day
-
         if ycount is not None:
-            # 使用全角括号展示昨日数量
             lparen = chr(0xFF08)
             rparen = chr(0xFF09)
             diff = count - ycount
             if diff >= 0:
-                msg = f"{prefix}{cn_comma}{cn_yesterday}{yesterday_day}号{lparen}{ycount}{cn_unit}{rparen}{cn_more}{diff}{cn_unit}{cn_excl}"
+                msg = f"{prefix}{cn_comma}{cn_yesterday}{yesterday_dt.day}号{lparen}{ycount}{cn_unit}{rparen}{cn_more}{diff}{cn_unit}{cn_excl}"
             else:
-                msg = f"{prefix}{cn_comma}{cn_yesterday}{yesterday_day}号{lparen}{ycount}{cn_unit}{rparen}{cn_less}{-diff}{cn_unit}{cn_excl}"
+                msg = f"{prefix}{cn_comma}{cn_yesterday}{yesterday_dt.day}号{lparen}{ycount}{cn_unit}{rparen}{cn_less}{-diff}{cn_unit}{cn_excl}"
         else:
-            # 若无法获取昨日数量，则只显示统计结果（不显示比较句）
             msg = f"{prefix}{cn_excl}"
 
         send_toast('Steam Mod 统计完成', msg)
         print(msg)
+        # 可选：打印实际写入的日期用于调试
+        # print(f"[DEBUG] Written date: {get_date_str(today_dt)}")
         return 0
     except Exception as e:
         err = str(e)
