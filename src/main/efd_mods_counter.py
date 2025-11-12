@@ -38,10 +38,11 @@ except Exception:
     load_workbook = None
 
 # 可选通知库
-try:
-    from win10toast import ToastNotifier
-except Exception:
-    ToastNotifier = None
+# win10toast 已移除（CI / 非 Windows 环境如 GitHub Actions 常常无法安装 win10toast），统一使用控制台输出作为通知回退。
+# try:
+#     from win10toast import ToastNotifier
+# except Exception:
+#     ToastNotifier = None
 
 # ========== 基本配置（可按需调整） ==========
 # 项目根目录（脚本位于 src/main，将向上三层到项目根）
@@ -337,14 +338,7 @@ def get_yesterday_count(excel_path: str, target_date_str: str = None):
 # -------------------------------
 
 def send_toast(title: str, message: str):
-    if ToastNotifier:
-        try:
-            tn = ToastNotifier()
-            tn.show_toast(title, message, duration=8, threaded=False)
-            return
-        except Exception:
-            pass
-    # 无法显示通知，回退到打印
+    # win10toast 已移除；直接打印到控制台以兼容所有平台
     print(f"{title} - {message}")
 
 # 可选：自动安装依赖（在开发环境或首次运行时使用）
