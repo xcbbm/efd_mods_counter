@@ -5,6 +5,7 @@ efd_mods_counter_py.py
 说明（中文注释，运行时中文通过 Unicode 拼接或直接使用 utf-8）：
   - 访问 Steam 创意工坊页面（Escape From Duckov），抓取并解析 MOD 总数量
   - 将统计结果写入当前工作区下的 excel 文件夹，以“《逃离鸭科夫》-Mods数量统计.xlsx”为文件名，按行追加
+  - 同时生成 latest.txt 调试文件，便于 CI 验证
   - 读取上一次记录并对比，生成中文通知文案并尝试发送系统通知（Windows Toast），失败则打印到控制台
 
 依赖：
@@ -342,18 +343,26 @@ def main():
         # 写入今天的记录（北京时间）
         ensure_excel_row(excel_path, today_dt, count)
 
+        # === 新增：写入 latest.txt 调试文件 ===
+        debug_path = os.path.join(CFG['OUTPUT_DIR'], 'latest.txt')
+        beijing_time_str = get_beijing_now().strftime('%Y-%m-%d %H:%M:%S')
+        with open(debug_path, 'w', encoding='utf-8') as f:
+            f.write(f"Date: {get_date_str(today_dt)}\n")
+            f.write(f"ModCount: {count}\n")
+            f.write(f"WrittenAt: {beijing_time_str} (Beijing Time)\n")
+
         # 构造通知消息
         cn_comma = chr(0xFF0C)
         cn_excl = chr(0xFF01)
         cn_today = f"{today_dt.year}年{today_dt.month}月{today_dt.day}日"
-        cn_workshop = CN('521B 610F 5DE5 574A')
+        cn_workshop = CN('521B 610F 5DE2 574A')
         cn_market = CN('5E02 573A')
         cn_of = CN('7684')
         cn_mod = 'Mod'
         cn_total_num_is = CN('603B 6570 91CF 4E3A')
         cn_unit = CN('4E2A')
         cn_yesterday = CN('6BD4 6628 5929')
-        cn_more = CN('591A 4E0A 67B6 4E86')
+        cn_more = CN('591A 4E0A 4E86')
         cn_less = CN('51CF 5C11 4E86')
 
         cn_game = CN('9003 79BB 9E2D 79D1 592B')
@@ -374,8 +383,6 @@ def main():
 
         send_toast('Steam Mod 统计完成', msg)
         print(msg)
-        # 可选：打印实际写入的日期用于调试
-        # print(f"[DEBUG] Written date: {get_date_str(today_dt)}")
         return 0
     except Exception as e:
         err = str(e)
