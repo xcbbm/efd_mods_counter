@@ -27,7 +27,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run mods counter script
-        run: python src/efd_mods_counter.py  
+        run: python src/main/efd_mods_counter.py  
 
       - name: Commit and push Excel output
         run: |
