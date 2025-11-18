@@ -22,6 +22,25 @@ import time
 import subprocess
 from datetime import datetime, timedelta, timezone
 
+# === 修复模块导入路径 ===
+import sys
+import os
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+# ========================
+
+# 安全导入短信模块
+try:
+    from src.main.sms_util import send_mod_count_sms
+    SMS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ 短信模块不可用（依赖缺失或路径错误）: {e}", file=sys.stderr)
+    SMS_AVAILABLE = False
+except Exception as e:
+    print(f"⚠️ 短信模块加载失败: {e}", file=sys.stderr)
+    SMS_AVAILABLE = False
+
 # 尝试导入第三方库
 try:
     import requests
@@ -383,6 +402,27 @@ def main():
 
         send_toast('Steam Mod 统计完成', msg)
         print(msg)
+                # === 发送短信通知（批量）===
+        if SMS_AVAILABLE and ycount is not None:
+            increment = count - ycount
+            try:
+                success_count, total_count = send_mod_count_sms(
+                    todaycount=count,
+                    yesterdaycount=ycount,
+                    increment=increment
+                )
+                if total_count == 0:
+                    print("⏭️ 无有效手机号，跳过短信发送。")
+                elif success_count == total_count:
+                    print(f"✅ 短信通知已成功发送至 {total_count} 个号码。")
+                else:
+                    print(f"⚠️ 短信部分成功：{success_count}/{total_count} 个号码接收成功。", file=sys.stderr)
+            except Exception as e:
+                print(f"❌ 短信发送异常: {e}", file=sys.stderr)
+        elif not SMS_AVAILABLE:
+            print("⏭️ 跳过短信发送（模块未加载）。")
+        else:
+            print("⏭️ 无昨日数据，跳过短信发送。")
         return 0
     except Exception as e:
         err = str(e)

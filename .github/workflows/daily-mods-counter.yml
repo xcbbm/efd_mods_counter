@@ -1,45 +1,69 @@
+# 工作流名称：每日 MOD 数据统计与通知
 name: Daily Mods Counter
 
+# 触发条件
 on:
+  # 定时触发：每天 UTC 时间 15:00（对应北京时间 23:00，UTC+8）
   schedule:
-    # 每天 UTC 时间 15:00 触发 → 对应北京时间 23:00（UTC+8）
     - cron: '0 15 * * *'
-  # 允许手动触发测试
+  
+  # 允许在 GitHub Actions 页面手动触发（用于测试）
   workflow_dispatch:
 
-
+# 定义一个名为 update-excel 的作业
 jobs:
   update-excel:
+    # 在最新版 Ubuntu 虚拟机上运行
     runs-on: ubuntu-latest
 
+    # ⚠️ 关键权限设置：允许此作业写入仓库内容（如 git push）
+    # 若不加此配置，push 会因权限不足失败
+    permissions:
+      contents: write
+
     steps:
+      # 步骤 1：检出当前仓库代码
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # 使用默认的 GITHUB_TOKEN（由 GitHub 自动提供）
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 步骤 2：设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.10'  # 使用 Python 3.10（兼容阿里云 Tea SDK）
 
+      # 步骤 3：安装项目依赖（阿里云新版短信 SDK）
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install alibabacloud_dysmsapi20170525==4.2.0 \
+                       alibabacloud_tea_openapi==0.3.9 \
+                       alibabacloud_tea_util==0.3.11
 
-      - name: Run mods counter script
-        run: python src/main/efd_mods_counter.py  
+      # 步骤 4：运行主程序（抓取 MOD 数据 + 发送短信）
+      - name: Run mods counter script (with SMS)
+        env:
+          # 将 GitHub Secrets 中的安全凭证注入为环境变量
+          # 这些变量将在 Python 脚本中通过 os.getenv() 读取
+          ALIBABA_CLOUD_ACCESS_KEY_ID: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_ID }}
+          ALIBABA_CLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIBABA_CLOUD_ACCESS_KEY_SECRET }}
+        run: python src/main/efd_mods_counter.py
 
+      # 步骤 5：将生成的 Excel 文件提交并推送到仓库
       - name: Commit and push Excel output
         run: |
-          # 配置 Git 用户
+          # 配置 Git 提交用户信息（使用 GitHub 官方 bot 身份）
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # 添加 excel 目录下所有变更
+          # 添加 excel/ 目录下的所有变更文件
           git add excel/
           
-          # 仅当有更改时才提交
+          # 检查是否有实际变更：若有，则提交并推送；若无，则跳过
           if ! git diff --quiet --cached; then
+            # 提交信息包含当前时间，便于追踪
             git commit -m "Update mods data [$(date +'%Y-%m-%d %H:%M:%S')]"
             git push
           else
