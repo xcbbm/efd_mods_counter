@@ -38,9 +38,8 @@ jobs:
       # 步骤 3：安装项目依赖（阿里云新版短信 SDK）
       - name: Install dependencies
         run: |
-          pip install alibabacloud_dysmsapi20170525==4.2.0 \
-                       alibabacloud_tea_openapi==0.3.9 \
-                       alibabacloud_tea_util==0.3.11
+          pip install --upgrade pip
+          pip install alibabacloud_dysmsapi20170525==4.2.0
 
       # 步骤 4：运行主程序（抓取 MOD 数据 + 发送短信）
       - name: Run mods counter script (with SMS)
