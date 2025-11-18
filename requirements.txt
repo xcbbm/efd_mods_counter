@@ -1,3 +1,4 @@
 requests
 openpyxl
 os
+alibabacloud-dysmsapi20170525>=4.2.0
